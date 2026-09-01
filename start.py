@@ -66,10 +66,15 @@ def check_ui_js():
     import re, shutil, tempfile
     if shutil.which("node") is None:
         return
-    src = open(APP, encoding="utf-8").read()
+    # PAGE 는 헥사고날 개편(2026-09-01)으로 hwtool/web/ui.py 에 산다 — app.py 를 읽으면
+    # <script> 미매치로 게이트가 조용히 통과해 버린다(검증 P1-2). 소스 경로만 교정.
+    ui_path = os.path.join(HERE, "hwtool", "web", "ui.py")
+    if not os.path.exists(ui_path):
+        sys.exit(f"❌ UI 소스를 찾을 수 없습니다: {ui_path} (hwtool 패키지 누락?)")
+    src = open(ui_path, encoding="utf-8").read()
     m = re.search(r"<script>(.*)</script>", src, re.S)
     if not m:
-        return
+        sys.exit("❌ UI 소스에서 <script> 블록을 찾지 못했습니다 — 문법 게이트가 무력화된 상태로는 실행하지 않습니다.")
     with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as f:
         f.write(m.group(1))
         path = f.name

@@ -23,6 +23,20 @@
 전부 pi daemon 코드가 그대로 돈다. SY-01B 문법(`A`/`I`/`Z`…)을 아는 자리는 어댑터뿐이라는
 운영 경계도 그대로다.
 
+## 구조 (헥사고날 — 의존 방향은 core ← adapters ← service ← web ← app.py)
+
+```
+app.py               진입점(조립만) — bootstrap.sh/start.py 는 그대로 이걸 실행
+hwtool/core/         도메인: admin 미러 상수·센소리움 레지스트리·포트 배치 파생 (순수 → 단위테스트)
+hwtool/adapters/     아웃바운드: 기기모델→EnginePort 구현체 결선(SY-01B/Tecan)·GPIO 밸브
+hwtool/service/      유스케이스: STATE·락·게이트·연결/정비 오케스트레이션 (Flask 무의존)
+hwtool/web/          인바운드: Flask 라우트(얇게) + UI HTML
+tests/               core·service·web 배선을 시리얼/서버 없이 검증 (pytest)
+```
+
+인터페이스(포트)는 새로 만들지 않는다 — 운영 pi daemon 의 `senlyt_pi.ports.EnginePort` 가
+그 포트이고, 이 툴은 소비자다. 테스트: `PYTHONPATH=. python3 -m pytest -q tests/`.
+
 ## ⚠️ 먼저 이해할 것 — USB의 역할
 
 | 항목 | USB로 되나? |
@@ -67,6 +81,9 @@ python3 start.py     # 파이썬 단독: venv 설치+실행
    `sensorium-fragrance-1.0.0`(향장향·3펌프·27노트).
    시린지 용량 확인 후 **"실물 용량과 일치" 체크** — 체크 전엔 모션 버튼이 잠긴다
    (초기화 힘 `Z/Z1/Z2`·스톨전류·토출 스텝이 전부 용량에서 파생 — 틀리면 씰 손상·과다흡입).
+   버전의 **펌프 기기 모델**(SY-01B / Tecan XCalibur)이 어댑터 구현체와 스텝 축(12000/3000)을
+   함께 결정한다 — 인터페이스(EnginePort)는 동일, 구현체만 기종별로 갈아끼운다. 설치된
+   senlyt-pi 에 그 기종 구현체가 없으면 연결을 거부하고 화면에 ⚠️로 표기한다(조용한 폴백 없음).
 3. **[포트 매핑 및 설정]** — 어느 펌프 몇 번 구멍에 어떤 액체가 꽂혔는지 실제 배관에 맞게
    배정한다(admin 포트 매핑 미러 — 펌프마다 output 1·air 1·세척액/알코올 1 필수, 같은 펌프
    중복 액체 금지). **타일·초기화·세척·정비 밸브 회전이 전부 이 매핑을 따른다**(펌프별).
