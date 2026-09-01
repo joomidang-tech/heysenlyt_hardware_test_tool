@@ -2,11 +2,11 @@
 # =============================================================================
 # 원클릭 설치기 — 라즈베리파이에서 이 한 줄이면 다운로드+설치+부팅자동시작+실행.
 #
-#   curl -fsSL https://raw.githubusercontent.com/joomidang-tech/test-hardware-tool/main/bootstrap.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/joomidang-tech/heysenlyt_hardware_test_tool/v1.3.0/bootstrap.sh | bash
 #
 # 하는 일:
 #   1) 레포 다운로드(clone/pull, public 이라 자격증명 불필요)
-#   2) 가상환경(.venv) + flask·pyserial 설치
+#   2) 가상환경(.venv) + requirements.txt 설치 (flask·pyserial·senlyt-pi)
 #   3) 시리얼 권한(dialout) 부여
 #   4) systemd 서비스 등록 → 부팅 때마다 자동 시작 (죽으면 자동 재시작)
 #   5) 지금 바로 시작
@@ -15,9 +15,10 @@
 # =============================================================================
 set -euo pipefail
 
-REPO_URL="https://github.com/joomidang-tech/test-hardware-tool.git"
-DIR="$HOME/test-hardware-tool"
-SVC_NAME="test-hardware-tool"
+REPO_URL="https://github.com/joomidang-tech/heysenlyt_hardware_test_tool.git"
+BRANCH="v1.3.0"
+DIR="$HOME/heysenlyt_hardware_test_tool"
+SVC_NAME="heysenlyt-hardware-test-tool"
 NO_BOOT=0
 [ "${1:-}" = "--no-boot" ] && NO_BOOT=1
 
@@ -37,21 +38,23 @@ if [ -n "$NEED" ]; then
   sudo fc-cache -f >/dev/null 2>&1 || true   # 폰트 캐시 갱신
 fi
 
-# 1) 다운로드 (public → 인증 불필요)
+# 1) 다운로드 (public → 인증 불필요) — v1.3.0 브랜치 고정
 if [ -d "$DIR/.git" ]; then
-  echo "▶ 기존 설치 최신화 (git pull)..."
-  git -C "$DIR" pull --ff-only
+  echo "▶ 기존 설치 최신화 (git fetch + checkout ${BRANCH})..."
+  git -C "$DIR" fetch origin "$BRANCH"
+  git -C "$DIR" checkout "$BRANCH"
+  git -C "$DIR" pull --ff-only origin "$BRANCH"
 else
-  echo "▶ 다운로드 (git clone)..."
-  git clone --depth 1 "$REPO_URL" "$DIR"
+  echo "▶ 다운로드 (git clone -b ${BRANCH})..."
+  git clone --depth 1 -b "$BRANCH" "$REPO_URL" "$DIR"
 fi
 cd "$DIR"
 
-# 2) venv + 의존성
+# 2) venv + 의존성 (flask·pyserial·senlyt-pi — 운영 pi daemon 코드)
 echo "▶ 가상환경·의존성 설치..."
 python3 -m venv .venv 2>/dev/null || { sudo apt-get install -y -qq python3-venv; python3 -m venv .venv; }
 ./.venv/bin/pip install -q --upgrade pip
-./.venv/bin/pip install -q flask pyserial
+./.venv/bin/pip install -q -r requirements.txt
 
 # 3) 시리얼 권한
 if ! id -nG "$USER" 2>/dev/null | grep -qw dialout; then

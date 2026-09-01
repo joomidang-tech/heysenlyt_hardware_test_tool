@@ -17,9 +17,17 @@ PORT="${1:-8000}"
 command -v python3 >/dev/null 2>&1 || { echo "❌ python3 없음: sudo apt-get install -y python3 python3-venv"; exit 1; }
 [ -d ".venv" ] || python3 -m venv .venv || { echo "❌ venv 실패: sudo apt-get install -y python3-venv"; exit 1; }
 PY="$HERE/.venv/bin/python"
-"$PY" -c "import flask, serial" >/dev/null 2>&1 || {
-  echo "▶ flask, pyserial 설치 중..."; "$HERE/.venv/bin/pip" install --quiet --upgrade pip; "$HERE/.venv/bin/pip" install --quiet flask pyserial;
+"$PY" -c "import flask, serial, senlyt_pi" >/dev/null 2>&1 || {
+  command -v git >/dev/null 2>&1 || { echo "❌ git 필요(senlyt-pi 의존성): sudo apt-get install -y git"; exit 1; }
+  echo "▶ 의존성 설치 중 (flask·pyserial·senlyt-pi)..."
+  "$HERE/.venv/bin/pip" install --quiet --upgrade pip
+  "$HERE/.venv/bin/pip" install --quiet -r "$HERE/requirements.txt"
 }
+
+# ⚠️ 터널 = 인증 없는 하드웨어 제어 UI 를 공개 인터넷에 여는 것 — 반드시 명시 동의 후 진행.
+echo "⚠️  경고: 발급되는 URL 을 아는 누구나 펌프를 물리적으로 구동할 수 있습니다."
+read -r -p "   임시 브링업 테스트 용도로만 열고, 끝나면 즉시 닫겠습니까? [y/N] " ANSWER
+[ "${ANSWER:-N}" = "y" ] || { echo "중단합니다."; exit 1; }
 
 # 2) cloudflared 확인
 if ! command -v cloudflared >/dev/null 2>&1; then

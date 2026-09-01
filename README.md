@@ -1,111 +1,98 @@
-# 시린지펌프 USB 브라우저 테스트 (라즈베리파이 4B / 64bit)
+# 시린지펌프 정비 툴 (v1.3.0)
 
-"USB로 시린지펌프(SY-01B)를 구동할 수 있는가?"를 라즈베리파이 브라우저에서
-버튼으로 바로 확인하는 최소 Python 툴. 프로토콜은 hey-senlyt **v1.0.0 앱의 기기 제어
-로직**(`pump_service.dart`)을 그대로 이식했다.
+시린지펌프(SY-01B 계열·RS485)가 연결된 컴퓨터에서 켜서, 브라우저 버튼으로 펌프를
+점검·정비하는 도구 — **admin 콘솔의 점검·유지보수 화면을 서버 없이 로컬에서 돌리는 미러**다
+(펌프 제어·세척·기주 밸브·진단 도구·포트 매핑). 주문·제조·서버 연동은 없다 — 유지보수까지만.
+
+## 운영 스택과 "똑같이 동작"하는 이유
+
+이 툴은 펌프 제어를 **재구현하지 않는다.** 운영 pi daemon 패키지 `senlyt_pi`(v1.3.0 커밋 핀,
+`requirements.txt`)를 그대로 설치해서 그 어댑터로 펌프를 구동한다:
+
+| 이 툴의 동작 | 실행되는 운영 코드 |
+|---|---|
+| 자동 인식 & 연결 | `serial_port_discovery.list_candidate_ports` + `pump_health.discover_pumps` (daemon 부팅과 동일) |
+| 약한 초기화 | `Sy01bEngineAdapter.initialize_polled` — 펌프별 포트(ports_by_addr) 전달 (관제 정비 초기화와 동일 경로 — 폴 조기완료) |
+| 초기화·전량 흡입·전량 배출 (펌프별) | `run_op` — admin `wire.ts` engineOp 조립을 미러 (full=air 회전 · home=output 회전 · init=air/output) |
+| 정지(펌프별)·긴급 정지(전체) | `emergency_stop_all` (daemon 감시 스레드와 동일 호출 — estop 래치로 진행 중 모션 폴을 협조 중단) + 펌프별 `?` 프로브로 **도달 검증** 후 결과 보고 |
+| 진단 도구·향료 필링 | `dispense` — 서버 syringe 스텝과 동일 사이클 `I{in}→A{steps}→O{out}→A0` + 부피 게이트 + 명시 속도(진단 흡입 기본 2000Hz) |
+| 포트 매핑 | admin `pumpPorts` 미러(펌프별 편집·시드 = 센소리움 버전) — 타일·초기화·세척·정비 회전이 전부 이 매핑을 따른다 |
+| 상태 점검 | `health_probe` (daemon 하트비트와 동일 판정: 정상/응답 깨짐/무응답) |
+
+용량→스텝 파생·속도 클램프·에러 분류(일시/구조)·ack-tolerant·핫플러그 자가 회복·estop 래치
+전부 pi daemon 코드가 그대로 돈다. SY-01B 문법(`A`/`I`/`Z`…)을 아는 자리는 어댑터뿐이라는
+운영 경계도 그대로다.
 
 ## ⚠️ 먼저 이해할 것 — USB의 역할
 
 | 항목 | USB로 되나? |
 |------|:----:|
-| 펌프에 **명령 전송**(회전/흡입/배출) | ✅ USB→FT232R(USB-시리얼)→펌프 |
+| 펌프에 **명령 전송**(회전/흡입/배출) | ✅ USB→USB-RS485 어댑터→펌프 |
 | 펌프 **모터 구동 전원**(24V) | ❌ **별도 SMPS 필요** — USB로는 못 돌림 |
 
-즉 USB는 "통신선"이다. 이 툴로 명령이 나가도 펌프에 **별도 전원**이 없으면
-물리적으로 움직이지 않는다. 신호만 확인하려면 상태조회(`?`) 응답으로 통신 성립을 검증할 수 있다.
+USB는 통신선이다. 별도 24V 전원이 없으면 명령이 나가도 물리적으로 움직이지 않는다.
+통신 성립만 확인하려면 "상태 점검"의 링크 판정(정상/무응답)으로 충분하다.
 
 ## 🍓 원클릭 설치 (라즈베리파이 4B / 64bit) — 한 줄
 
-라즈베리파이 터미널에 이 **한 줄**이면 다운로드+설치+**부팅 자동시작**+실행까지 끝:
-
 ```bash
-curl -fsSL https://raw.githubusercontent.com/joomidang-tech/test-hardware-tool/main/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/joomidang-tech/heysenlyt_hardware_test_tool/v1.3.0/bootstrap.sh | bash
 ```
 
-이후 Pi를 켤 때마다 **자동으로 시작**됩니다(systemd, 죽으면 자동 재시작). 접속: http://localhost:8000
+이후 부팅 때마다 자동 시작(systemd, 죽으면 자동 재시작). 접속: http://localhost:8000
 
-- 부팅 자동시작 없이 1회만 실행: `... | bash -s -- --no-boot`
-- 로그: `sudo journalctl -u test-hardware-tool -f` · 중지: `sudo systemctl stop test-hardware-tool`
+- 부팅 자동시작 없이 1회만: `... | bash -s -- --no-boot`
+- 로그: `sudo journalctl -u heysenlyt-hardware-test-tool -f` · 중지: `sudo systemctl stop heysenlyt-hardware-test-tool`
 
-### 수동 실행 (개발용)
+### 수동 실행 (개발용 / 일반 PC·Mac)
 
-폴더를 받은 뒤 다음 중 하나:
 ```bash
-python3 start.py     # 파이썬 단독: venv 설치+실행 (bash 불필요)
+python3 start.py     # 파이썬 단독: venv 설치+실행
 ./run.sh             # 셸: venv 설치+실행
 ```
-(둘 다 최신 Pi OS Bookworm의 pip 차단(PEP 668)을 venv로 자동 우회.)
 
-실행되면 브라우저에서 접속:
-- **Pi 자체 화면**: http://localhost:8000
-- **같은 네트워크 폰/노트북**: http://<라즈베리파이IP>:8000  (주소는 실행 시 콘솔에 표시됨)
+요구: Python **3.11+**(senlyt-pi), git(의존성 설치용). PEP 668 pip 차단은 venv로 자동 우회.
+시리얼 권한이 없으면 `sudo usermod -a -G dialout $USER` 후 재로그인.
 
-> 순수 파이썬(Flask + pyserial)이라 ARM64에서 **빌드 없이 그대로** 동작한다. Pi 4B(2GB도) 충분.
-> USB-시리얼 어댑터(CH340/FT232R)는 **자동 인식**하므로 포트를 손으로 고를 필요 없다.
-> 처음 실행 시 시리얼 권한이 없으면 `sudo usermod -a -G dialout $USER` 후 재로그인.
+## 사용 순서
 
-### 외부 공개가 필요하면 (Cloudflare 임시 터널)
+1. **자동 연결** — 켜면 알아서 붙는다: 후보 포트 열거 → 주소 1~9 프로브 → 응답하는 펌프
+   등록을 3초 주기로 재시도(데몬 부팅 미러). 헤더에 연결 상태가 표시되고, USB 교체 직후엔
+   헤더의 **⟳ 다시 인식**으로 즉시 재스캔. 포트 고정은 환경변수 `SENLYT_SERIAL_PORT`.
+2. **설정 — 센소리움 버전 선택** — 센소리움 버전은 향료 팔레트·AI 모델·하드웨어 구성(펌프
+   수·포트 배치·용량)을 함께 약속하는 계약 단위다(2026-08-24 규약 문서). 버전을 고르면 펌프
+   구성·포트 매핑·용량 기본이 그 버전 기준으로 잡힌다. **버전 값은 지어내지 않는다** —
+   ai-developer v1.3.0 어댑터의 도장 접근자(`stamp_for` · VersionPort 계보)에서 얻으며(어댑터
+   미설치 컴퓨터는 미러 폴백 + UI 표기), 현재 세대: `sensorium-expo-0.1.2`(식향·2펌프·16향+당) ·
+   `sensorium-fragrance-1.0.0`(향장향·3펌프·27노트).
+   시린지 용량 확인 후 **"실물 용량과 일치" 체크** — 체크 전엔 모션 버튼이 잠긴다
+   (초기화 힘 `Z/Z1/Z2`·스톨전류·토출 스텝이 전부 용량에서 파생 — 틀리면 씰 손상·과다흡입).
+3. **[포트 매핑 및 설정]** — 어느 펌프 몇 번 구멍에 어떤 액체가 꽂혔는지 실제 배관에 맞게
+   배정한다(admin 포트 매핑 미러 — 펌프마다 output 1·air 1·세척액/알코올 1 필수, 같은 펌프
+   중복 액체 금지). **타일·초기화·세척·정비 밸브 회전이 전부 이 매핑을 따른다**(펌프별).
+4. **약한 초기화** — 전 펌프 동시 홈(폴 조기완료·최대 30초), **🧼 세척** — 초기화 → 세척액
+   전량 스트로크 × N회(펌프 병렬) → 식향 한정 에어 퍼지 × N회
+5. 펌프별 **전량 흡입 / 전량 배출**, **진단 도구·향료 필링**(액체 타일·속도/흡입량 슬라이더·
+   순차 필링·재필링)으로 정량 확인
+6. 이상 시 **⛔ 긴급 정지** — TR 발송 후 펌프별 응답을 재확인해 도달을 검증한다(전 펌프
+   무응답이면 실패로 보고 — 그땐 24V 전원을 직접 차단). 래치가 서면 복구(약한 초기화·세척)
+   외 모션 요청은 409로 잠긴다.
 
-```bash
-./run_with_tunnel.sh    # 앱 + https://*.trycloudflare.com 공개 URL 동시 실행
-```
-(cloudflared 필요 — 아래 "외부에서 접속" 참고. ⚠️ 인증 없음, 테스트용으로만.)
+로그 창에 pi daemon의 구조화 로그가 그대로 흐른다(시리얼 왕복 원문은 DEBUG 체크 시).
 
-## 테스트 순서
+## 외부 접속·보안
 
-1. **🔍 기기 자동 인식 & 연결** → 연결 직후 펌프 상태 자동 점검 표시
-2. **제품 종류** 선택(음료/향수) → 나머지는 자동 분기
-3. **기기설정**에서 용량·mL·속도 확인/조정
-4. **초기화** → 원점 잡기 (펌프 24V 전원 있어야 물리 동작)
-5. **① 밸브 → ② 흡입/배출** 순서로 구동 확인
-6. 이상 시 **긴급정지(TR)**
+인증이 없다 — 같은 네트워크 누구나 펌프를 움직일 수 있다. **정비할 때만 켜고, 끝나면 끈다.**
+(부팅 자동시작으로 설치했다면 정비 후 `sudo systemctl stop heysenlyt-hardware-test-tool` 권장.)
+외부 공개가 필요하면 `./run_with_tunnel.sh`(Cloudflare 임시 터널)를 쓰되 같은 경고가 적용된다.
+이 도구는 진단·정비 전용 — 운영 데몬(senlytd)에는 포함하지 않으며, **senlytd가 실행 중인
+기기에서는 연결을 거부한다**(같은 RS485 버스를 두 프로세스가 잡으면 프레임이 섞인다 —
+`sudo systemctl stop senlytd` 후 정비).
 
-로그 창에 송신(`>>>`)·수신(`<<<`) 원문과 상태(error_code, ready)가 표시된다.
+## 응답 해석 (참고)
 
-## 외부에서 접속 (Cloudflare 임시 터널)
+에러코드는 pi daemon의 분류를 그대로 쓴다: 0 정상 / 1·7·11·15 일시적(재시도 가능) /
+2·3·9·10 구조적(점검 필요). 라벨은 UI에 한글로 표시된다.
 
-Pi 밖(휴대폰/다른 노트북)에서 접속하려면 Cloudflare 임시 터널을 쓴다. 계정·도메인 불필요.
-
-```bash
-# 1) cloudflared 설치 (라즈베리파이 64bit / ARM64, 한 번만)
-wget https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64.deb
-sudo dpkg -i cloudflared-linux-arm64.deb
-
-# 2) 앱 + 터널 동시 실행 → 콘솔에 공개 URL 출력
-chmod +x run_with_tunnel.sh
-./run_with_tunnel.sh
-```
-
-실행하면 `https://<랜덤단어>.trycloudflare.com` 형태의 URL이 콘솔에 찍힌다. 그 주소를 브라우저로 열면 끝. Ctrl+C 로 앱·터널 모두 종료된다.
-
-> 수동으로 하려면: 터미널 A에서 `python3 app.py`, 터미널 B에서 `cloudflared tunnel --url http://localhost:8000`.
-
-### ⚠️ 보안 경고 (반드시 읽을 것)
-
-이 터널 URL은 **인증이 없다.** URL을 아는 누구나 브라우저로 들어와 **펌프를 물리적으로 구동**할 수 있다.
-- **임시 브링업 테스트에만** 쓰고, 끝나면 즉시 Ctrl+C 로 터널을 닫는다.
-- URL을 공개 채널(공유 문서·오픈 채팅)에 남기지 않는다.
-- 상시 노출이 필요하면 앱에 토큰 인증을 추가하거나(요청 시 넣어줌), Cloudflare Access로 보호한다.
-- 이 도구는 **진단 전용** — 운영 데몬(senlytd)에는 포함하지 않는다(infra §2.1).
-
-## 응답 해석 (상태 바이트)
-
-응답 `/0<상태>...` 에서 상태 바이트 기준:
-- `error_code = byte & 0x0F` → `0` 정상, `15` Busy(작업중), 그 외 하드웨어 에러
-- `ready = byte & 0x20` → `true` 면 대기/완료
-
-## 명령 요약 (Raw 입력용)
-
-| 명령 | 의미 |
-|------|------|
-| `?` | 상태 조회 |
-| `U200,5R` | 스톨 전류 설정 |
-| `ZR` / `Z1R` | 원점 복귀(Full / Half force) |
-| `I{1~12}R` | 밸브를 해당 포트로 회전 |
-| `P{steps}R` | 흡입 (24000 steps = 1mL) |
-| `D{steps}R` | 배출 |
-| `A{steps}R` | 플런저 절대 위치 이동 |
-| `v500V6000c500L14R` | 속도 설정(start/top/cutoff/slope) |
-| `TR` | 정지(Terminate) |
-
-> 원문 규격: `developer/hey_senlyt/v1.0.0/code/hey-senlyt/hey-senlyt-app/lib/core/hardware/pump_service.dart`
+> 원문 규격: SY-01B 매뉴얼 §4 · Tecan/Cavro OEM 표준 §3 (Cavro XCalibur 매뉴얼은
+> `developer/hey_senlyt/v1.3.0/00_research/` 참조)

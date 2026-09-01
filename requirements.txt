@@ -1,2 +1,5 @@
 flask>=3.0
 pyserial>=3.5
+# ⛔ 펌프 제어 로직은 이 툴이 재구현하지 않는다 — 운영 pi daemon(senlyt_pi)의 어댑터를
+#    그대로 실행한다("admin+pi 와 똑같이 동작"의 근거). 핀 = v1.3.0 브랜치 헤드 커밋.
+senlyt-pi @ git+https://github.com/joomidang-tech/heysenlyt_pi.git@27142222ddf0fa4678387abe046b0b7bac208564

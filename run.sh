@@ -32,11 +32,12 @@ fi
 PY="$HERE/.venv/bin/python"
 PIP="$HERE/.venv/bin/pip"
 
-# 3) 의존성 설치 (이미 있으면 건너뜀)
-if ! "$PY" -c "import flask, serial" >/dev/null 2>&1; then
-  echo "▶ flask, pyserial 설치 중..."
+# 3) 의존성 설치 (이미 있으면 건너뜀) — senlyt-pi 는 git+https 라 git 필요
+if ! "$PY" -c "import flask, serial, senlyt_pi" >/dev/null 2>&1; then
+  command -v git >/dev/null 2>&1 || { echo "❌ git 필요(senlyt-pi 의존성):  sudo apt-get install -y git"; exit 1; }
+  echo "▶ 의존성 설치 중 (flask·pyserial·senlyt-pi)..."
   "$PIP" install --quiet --upgrade pip
-  "$PIP" install --quiet flask pyserial
+  "$PIP" install --quiet -r "$HERE/requirements.txt"
 fi
 
 # 4) 시리얼 권한 확인
