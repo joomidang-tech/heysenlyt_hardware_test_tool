@@ -33,7 +33,9 @@ PY="$HERE/.venv/bin/python"
 PIP="$HERE/.venv/bin/pip"
 
 # 3) 의존성 설치 (이미 있으면 건너뜀) — senlyt-pi 는 git+https 라 git 필요
-if ! "$PY" -c "import flask, serial, senlyt_pi" >/dev/null 2>&1; then
+# 감시병 = tecan 어댑터 모듈(2026-09-03 P1) — "import senlyt_pi 만 되면 스킵"은 핀을 올려도
+#   기존 venv 가 영원히 구세대로 남는 함정이었다. 최신 필수 모듈이 없으면 재설치를 태운다.
+if ! "$PY" -c "import flask, serial, senlyt_pi.adapters.tecan_xcalibur_engine_adapter" >/dev/null 2>&1; then
   command -v git >/dev/null 2>&1 || { echo "❌ git 필요(senlyt-pi 의존성):  sudo apt-get install -y git"; exit 1; }
   echo "▶ 의존성 설치 중 (flask·pyserial·senlyt-pi)..."
   "$PIP" install --quiet --upgrade pip

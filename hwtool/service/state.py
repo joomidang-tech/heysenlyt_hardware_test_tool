@@ -10,8 +10,6 @@ import threading
 
 from ..adapters.engines import engine_cls, spec_for
 from ..core.layout import pump_label as _pump_label_pure
-from ..core.layout import role_port as _role_port_pure
-from ..core.layout import seed_pump_ports
 from ..core.sensorium import DEFAULT_SENSORIUM, SENSORIUM_VERSIONS
 from senlyt_pi.core.pump_guard import SyringeSpec
 
@@ -25,33 +23,40 @@ STATE = {
     "sensorium": DEFAULT_SENSORIUM,
     "mode": SENSORIUM_VERSIONS[DEFAULT_SENSORIUM]["family"],  # 파생값 — 버전의 계열(flavor|fragrance)
     "capacity_ml": SENSORIUM_VERSIONS[DEFAULT_SENSORIUM]["capacityMl"],
-    # ⛔ 용량 확인 게이트(검증 P1-5) — 초기화 힘(Z/Z1/Z2)·스톨전류·스텝 파생이 전부 이 값에서
-    #   나온다(작은 시린지에 Full force = 씰 손상·v1.1.0 실사고). 운영자가 실물과 일치를 명시
-    #   확인하기 전엔 모션 버튼을 잠근다.
-    "capacity_confirmed": False,
-    # 포트 매핑(admin pumpPorts 미러) — {addr(int): {port(int): liquid}}. 시드 = 센소리움 버전.
-    "pump_ports": seed_pump_ports(SENSORIUM_VERSIONS[DEFAULT_SENSORIUM]["family"]),
+    # (용량 확인 체크 게이트는 2026-09-03 제거 — 연결이 "설정 확정 후 명시 행위"가 되면서 중복.
+    #  용량 값(capacity_ml)은 그대로 초기화 힘·스텝 파생의 SoT — 설정에서 정확히 고를 것.)
+    # (포트 매핑/향료 개념 제거 — 2026-09-03 사용자 확정: 이 툴은 하드웨어 테스트 벤치라
+    #  "어떤 향료가 어느 포트인가"를 몰라야 한다. 포트는 그냥 번호 — 토출 테스트에서 직접 지정.)
+    # 밸브 설정(밸브 제어 탭 소관·2026-09-03) — 이 기기의 회전밸브가 무엇인지 사용자가 선언.
+    #   kind: "letter"=비분배(3-way 등·i/o) | "numeric"=분배(포트 번호 1..N).
+    #   port_count 는 numeric 일 때만 의미(2..15). 기본 = 벤치 실물(3-way).
+    # 지문 불일치 무시(R9 P1-2 탈출구) — SY-01B 클론이 Tecan 파트넘버를 복제한 개체 대비.
+    #   기본 OFF. 켜도 어댑터 -1003 게이트는 남는다(툴 연결단만 우회).
+    "allow_fp_mismatch": False,
     "busy": None,  # str | None — 진행 중 작업 라벨
-    # 자동 연결 스위치(사용자 요청 2026-09-01) — False 면 주기 자동 인식이 쉰다(수동 ⟳만 동작).
-    "auto_connect": True,
+    # 자동 연결 스위치 — **기본 OFF**(개념 개편 2026-09-03: 연결은 설정을 다 고른 뒤 하는
+    #   명시 행위다. 부팅하자마자 프로브가 돌면 "설정 → 연결" 순서가 뒤집힌다). ON 은 연결
+    #   유지/재연결 옵션: 미연결이면 3초 주기로 현재 설정 기준 재인식.
+    "auto_connect": False,
     "connecting": False,  # 자동 인식 진행 중(리뷰 P2-5) — estop 의 temp 어댑터 겹침 방지.
+    # 연결 세대 카운터(2026-09-03) — 센소리움 버전 변경마다 +1. 진행 중 connect_core 가
+    #   시작 시점 세대와 대조해, 연결 도중 버전이 바뀌면(=구 방언 프로브 결과) 스스로 중단한다.
+    "conn_epoch": 0,
     # 진행 중 프로브 어댑터 참조(리뷰 NEW-1) — estop 이 signal_stop 으로 프로브를 즉시 중단시키기 위함.
     "probe_adapter": None,
-    # ⛔ 연결 후 첫 정비 게이트(리뷰 P1-2) — 약한 초기화/세척(포트 지정 홈)을 거치기 전의 plunger/
+    # ⛔ 연결 후 첫 정비 게이트(리뷰 P1-2) — 초기화(포트 지정 홈)을 거치기 전의 plunger/
     #   필링은 어댑터 lazy 셋업이 **포트 없는 `Z{힘}R`**(펌웨어 기본 = 포트1 흡입·마지막 포트 배출)
     #   로 돌아 포트1 액체를 빨아 버린다(2026-07-21 실사고 경로). 첫 복구 성공 전엔 모션을 잠근다.
     "initialized_after_connect": False,
-    # 서버측 estop 게이트의 미러(검증 P0-2) — 래치가 서면 복구(약한 초기화·세척) 외 모션을 409 차단.
+    # 서버측 estop 게이트의 미러(검증 P0-2) — 래치가 서면 복구(초기화) 외 모션을 409 차단.
     "estop": False,
+    "valve_info": None,  # ?76 판독 결과(연결 시) — None=미판독(정적 폴백)
     "estop_in_progress": False,  # estop TR 발송 중(검증 P0-4) — 그동안 복구 경로도 배제.
     # 밸브(GPIO) — 지연 초기화: "uninit" → GpioValveAdapter | None(사용 불가).
     "valve": "uninit",
     "valve_err": None,
     # 밸브 낙관 표시(admin 미러 — GPIO 출력은 실측 필드가 없어 발행 시각 기반) base → 만료 epoch.
     "valve_open_until": {"sour": 0.0, "normal": 0.0},
-    # 향료 필링 진행(admin 순차 패널 미러 — 툴은 로컬이라 실시간) — None | dict.
-    #   {active, phase, targets:[{pump,port,label}], current(진행 인덱스), results:[...], outcome}
-    "filling": None,
 }
 # 정비 작업 직렬화 락 — daemon 이 정비/제조를 큐로 직렬화하는 것의 미러.
 #   ⚠️ 긴급 정지는 이 락을 **타지 않는다**(어댑터가 스레드 안전 + estop 래치가 in-flight 폴을 깨움).
@@ -75,10 +80,6 @@ def current_engine_cls():
 
 def pump_label(addr: int) -> str:
     return _pump_label_pure(STATE["mode"], addr)
-
-
-def role_port(addr: int, role: str) -> int:
-    return _role_port_pure(STATE["pump_ports"], STATE["mode"], addr, role)
 
 
 def busy_guard(label: str):
@@ -106,16 +107,15 @@ def motion_gate(*, is_recovery: bool = False):
     """모션 요청 공통 게이트 — 통과 시 None, 차단 시 (메시지, HTTP 상태).
 
     - estop 발송 중: 전부 차단(P0-4).
-    - estop 래치: 복구 경로(약한 초기화·세척)만 통과 — admin "복구는 [약한 초기화 & 세척]" 미러.
-    - 용량 미확인: 전부 차단(P1-5).
+    - estop 래치: 복구 경로(초기화·세척)만 통과 — admin "복구는 [초기화 & 세척]" 미러.
+    (용량 확인 체크 게이트는 2026-09-03 제거 — 연결이 "설정 확정 후 명시 행위"가 되면서
+     중복 관문이 됐다. 용량 값 자체는 설정에 남아 스텝 파생에 그대로 쓰인다.)
     """
     if STATE["estop_in_progress"]:
         return ("긴급 정지 발송 중 — 잠시 후 다시 시도하세요.", 409)
     if STATE["estop"] and not is_recovery:
-        return ("긴급 정지 래치 상태 — [약한 초기화] 또는 [세척]으로 복구하세요.", 409)
-    if not STATE["capacity_confirmed"]:
-        return ("시린지 용량 확인이 필요합니다 — 설정에서 실물 용량과 일치함을 체크하세요.", 400)
+        return ("긴급 정지 래치 상태 — [초기화]로 복구하세요.", 409)
     if not is_recovery and not STATE["initialized_after_connect"]:
-        # 연결 후 첫 정비 게이트(P1-2) — 포트 지정 홈을 거치기 전의 lazy 셋업(Z 포트 생략) 차단.
-        return ("연결 후 [약한 초기화]를 먼저 실행하세요 — 홈 기준·포트를 잡기 전의 동작은 포트1 액체를 소모합니다.", 409)
+        # 연결 후 첫 정비 게이트(P1-2) — 홈 기준을 잡기 전의 플런저 이동 차단(위치 기준 미확정).
+        return ("연결 후 [초기화]를 먼저 실행하세요 — 홈 기준·포트를 잡기 전의 동작은 포트1 액체를 소모합니다.", 409)
     return None

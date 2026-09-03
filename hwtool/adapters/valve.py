@@ -32,13 +32,15 @@ def _valve_adapter_locked(state: dict, log):
                 DEFAULT_MAX_OPEN_SEC,
                 GpioValveAdapter,
             )
+            # 공개 별칭 우선(2026-09-04 감사 P2 — 프라이빗 관통 제거), 핀 구세대는 프라이빗 폴백.
+            from senlyt_pi.app import bootstrap as _bs
             from senlyt_pi.app.bootstrap import (
                 SENLYT_VALVE_FLOW_ENV,
                 SENLYT_VALVE_MAX_OPEN_ENV,
                 SENLYT_VALVE_PINS_ENV,
-                _float_env,
-                _valve_pins_from_env,
             )
+            _float_env = getattr(_bs, "float_env", None) or _bs._float_env
+            _valve_pins_from_env = getattr(_bs, "valve_pins_from_env", None) or _bs._valve_pins_from_env
 
             state["valve"] = GpioValveAdapter(
                 pins=_valve_pins_from_env(os.environ.get(SENLYT_VALVE_PINS_ENV)),

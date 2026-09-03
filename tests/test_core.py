@@ -65,7 +65,8 @@ class TestResults:
         assert result_json(-1000)["class"] == "transient"  # 무응답 sentinel = 재시도 대상.
 
     def test_clamp_and_port_validation(self):
-        assert clamp_setting("aspirateSpeedHz", 99999, 2000) == 5000
+        # 상한 = 6000(2026-09-03 확장) — 어댑터 프리셋 물리 상한과 정렬(벤치 전 범위 실측).
+        assert clamp_setting("aspirateSpeedHz", 99999, 2000) == 6000
         assert clamp_setting("aspirateSpeedHz", "bogus", 2000) == 2000
         assert valid_port(12) and not valid_port(13) and not valid_port("3")
 
@@ -74,11 +75,10 @@ class TestSpecAxisByModel:
     def test_sy01b_axis(self):
         assert spec_for("sy01b", 0.5).pump_full_stroke == 12000
 
-    @pytest.mark.skipif(
-        "tecan_xcalibur" not in PUMP_PRESETS,
-        reason="핀 고정된 senlyt_pi 에 tecan 프리셋이 아직 없음 — 핀 갱신 후 활성화(검증 P1-4)",
-    )
-    def test_tecan_axis_when_available(self):
+    def test_tecan_axis_present_and_correct(self):
+        # ⛔ skip 금지(2026-09-03 P1) — 프리셋 부재 = 배포 형상 오류(핀 구세대)다. 형상 오류는
+        #   skip 으로 조용히 넘기지 않고 실패로 드러낸다.
+        assert "tecan_xcalibur" in PUMP_PRESETS, "핀 구세대 — tecan 프리셋 없음(P1-1)"
         # 기기 모델이 스텝 축을 결정한다 — tecan=3000(N0). 검증팀 P0 회귀 가드.
         assert spec_for("tecan_xcalibur", 0.5).pump_full_stroke == 3000
         assert spec_for("tecan_xcalibur", 0.5).steps_for_volume_ul(100.0) == 600

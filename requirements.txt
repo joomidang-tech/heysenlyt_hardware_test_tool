@@ -1,5 +1,9 @@
 flask>=3.0
 pyserial>=3.5
 # ⛔ 펌프 제어 로직은 이 툴이 재구현하지 않는다 — 운영 pi daemon(senlyt_pi)의 어댑터를
-#    그대로 실행한다("admin+pi 와 똑같이 동작"의 근거). 핀 = v1.3.0 브랜치 헤드 커밋.
-senlyt-pi @ git+https://github.com/joomidang-tech/heysenlyt_pi.git@27142222ddf0fa4678387abe046b0b7bac208564
+#    그대로 실행한다("admin+pi 와 똑같이 동작"의 근거).
+# ⚠️ 핀은 손으로 최신이라 적지 말고 **커밋 SHA 로 검증**할 것(2026-09-03 P1 — 종전 핀이
+#    Tecan 도입 3커밋 전이라, 새 설치 형상엔 기종 분기·프리미티브가 통째로 없었다. 로컬은
+#    PYTHONPATH 로 워크트리를 봐서 침묵 — 지금은 tests/test_adapter_contract.py 가 형상을
+#    감시한다). 발행 시 heysenlyt-pi 최신 커밋으로 함께 올린다.
+senlyt-pi @ git+https://github.com/joomidang-tech/heysenlyt_pi.git@ec367a4cfa63eb068d22096f79794309e13ef46f

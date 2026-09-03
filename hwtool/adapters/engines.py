@@ -12,7 +12,7 @@ sy01b 구현체로 XCalibur 에 U 를 쏘면 NVM 설정이 바뀔 수 있다).
 
 from __future__ import annotations
 
-from senlyt_pi.adapters.sy01b_engine_adapter import Sy01bEngineAdapter
+from senlyt_pi.adapters.sy01b_engine_adapter import TECAN_FP_RE, Sy01bEngineAdapter
 from senlyt_pi.core.pump_guard import PUMP_PRESETS, SyringeSpec
 
 try:
@@ -35,6 +35,25 @@ def engine_cls(model: str):
     if cls is None or model not in PUMP_PRESETS:
         return None
     return cls
+
+
+def tecan_fingerprint_re():
+    """Tecan 지문 정규식 — SoT 는 sy01b 어댑터(TECAN_FP_RE)이고 이 레지스트리가 유일한 노출면.
+
+    service 가 구현체 모듈을 직접 import 하지 않는다는 결선 경계 규칙(estop_fallback_cls 와
+    동일 근거·2026-09-04 헥사고날 감사 P1)을 지문에도 적용한다.
+    """
+    return TECAN_FP_RE
+
+
+def estop_fallback_cls():
+    """긴급 정지용 폴백 구현체 — 어댑터 미결선(현재 모델 구현체 없음)일 때의 최후 선택.
+
+    결선 지식(모델→클래스)은 이 레지스트리 소관이라 service 가 구현체 이름을 직접
+    import 하지 않는다(2026-09-03 아키텍처 검증 P2 — 방언 소유 경계). 미결선 estop 은
+    최선노력 정지라 sy01b(TR — 모션 무발생·클론 공통 문법)로 폴백한다.
+    """
+    return Sy01bEngineAdapter
 
 
 def spec_for(model: str, capacity_ml: float) -> SyringeSpec:

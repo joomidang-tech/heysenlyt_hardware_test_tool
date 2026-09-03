@@ -25,18 +25,9 @@ def create_app() -> Flask:
     def api_state():
         return jsonify(settings.state_payload())
 
-    @app.get("/api/tiles")
-    def api_tiles():
-        return jsonify(settings.tiles_payload())
-
     @app.post("/api/settings")
     def api_settings():
         payload, status = settings.apply_settings(request.get_json(silent=True) or {})
-        return jsonify(payload), status
-
-    @app.post("/api/portmap")
-    def api_portmap():
-        payload, status = settings.apply_portmap(request.get_json(silent=True) or {})
         return jsonify(payload), status
 
     @app.post("/api/connect")
@@ -46,10 +37,14 @@ def create_app() -> Flask:
         연결은 모션이 아니라 OP_LOCK(busy)이 아닌 `_CONNECT_LOCK` 축(검증 FAIL-1) — 단
         정비 작업 중 재인식은 여전히 막는다(모션 중 어댑터 교체 방지·busy 검사만).
         """
-        if STATE["busy"]:
-            return jsonify({"ok": False, "error": f"다른 작업 진행 중: {STATE['busy']}"}), 409
         body = request.get_json(silent=True) or {}
         payload, status = connection.manual_connect((body.get("port") or "").strip())
+        return jsonify(payload), status
+
+    @app.post("/api/disconnect")
+    def api_disconnect():
+        """명시적 연결 끊기(오픈-클로즈 대칭·2026-09-03) — [연결 끊기] 버튼. 자동 재연결도 함께 끔."""
+        payload, status = connection.disconnect()
         return jsonify(payload), status
 
     @app.get("/api/health")
@@ -62,14 +57,9 @@ def create_app() -> Flask:
         payload, status = maintenance.run_plunger(request.get_json(silent=True) or {})
         return jsonify(payload), status
 
-    @app.post("/api/weak-init")
-    def api_weak_init():
-        payload, status = maintenance.weak_init()
-        return jsonify(payload), status
-
-    @app.post("/api/clean")
-    def api_clean():
-        payload, status = maintenance.clean(request.get_json(silent=True) or {})
+    @app.post("/api/init")
+    def api_init():
+        payload, status = maintenance.init_pumps(request.get_json(silent=True) or {})
         return jsonify(payload), status
 
     @app.post("/api/estop")
@@ -80,11 +70,6 @@ def create_app() -> Flask:
     @app.post("/api/valve")
     def api_valve():
         payload, status = maintenance.valve_action(request.get_json(silent=True) or {})
-        return jsonify(payload), status
-
-    @app.post("/api/filling")
-    def api_filling():
-        payload, status = maintenance.start_filling(request.get_json(silent=True) or {})
         return jsonify(payload), status
 
     @app.get("/api/logs")

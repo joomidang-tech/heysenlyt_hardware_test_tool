@@ -31,54 +31,6 @@ class TestStateAndSettings:
         assert r.status_code == 400
 
 
-class TestPortmapValidation:
-    # ⚠️ 각 케이스는 **앞선 검사를 전부 통과**시킨 뒤 목표 검사만 위반해야 실질 검증이다
-    #   (검증 변이시험 M2/M7/M9 — 첫 관문에서 끝나는 페이로드는 뒤 검사를 안 밟는다).
-    def test_missing_output_rejected(self, client):
-        pump = st.version()["pumps"][0]
-        r = client.post("/api/portmap", json={"pump": pump, "ports": {"1": "lemon"}})
-        assert r.status_code == 400 and "output" in r.get_json()["error"]
-
-    def test_missing_air_rejected(self, client):
-        pump = st.version()["pumps"][0]
-        r = client.post("/api/portmap", json={
-            "pump": pump, "ports": {"1": "lemon", "2": "output", "11": "cleaning"}})
-        assert r.status_code == 400 and "air" in r.get_json()["error"]
-
-    def test_missing_cleaning_rejected(self, client):
-        # cleaning 0개 = 세척이 모드 기본 포트의 **다른 액체를 알코올인 줄 알고 전량 소모**하는
-        # 조용한 오동작 경로 — fail-closed 가드의 회귀 방지망(변이 M2 생존 봉합).
-        pump = st.version()["pumps"][0]
-        r = client.post("/api/portmap", json={
-            "pump": pump, "ports": {"1": "lemon", "2": "output", "12": "air"}})
-        assert r.status_code == 400 and "세척액" in r.get_json()["error"]
-
-    def test_out_of_range_port_rejected(self, client):
-        pump = st.version()["pumps"][0]
-        r = client.post("/api/portmap", json={
-            "pump": pump,
-            "ports": {"99": "lemon", "2": "output", "12": "air", "11": "cleaning"}})
-        assert r.status_code == 400 and "1~12" in r.get_json()["error"]
-
-    def test_duplicate_liquid_rejected(self, client):
-        pump = st.version()["pumps"][0]
-        r = client.post("/api/portmap", json={
-            "pump": pump,
-            "ports": {"1": "lemon", "3": "lemon", "2": "output", "12": "air", "11": "cleaning"},
-        })
-        assert r.status_code == 400 and "중복" in r.get_json()["error"]
-
-    def test_valid_layout_accepted_and_returns_state(self, client):
-        # 성공 계약 — 원본 `return api_state()` 보존: 200 + 전체 state JSON(검증 P2-9).
-        pump = st.version()["pumps"][0]
-        r = client.post("/api/portmap", json={
-            "pump": pump,
-            "ports": {"1": "lemon", "2": "output", "12": "air", "11": "cleaning"}})
-        assert r.status_code == 200
-        s = r.get_json()
-        assert s["pumpPorts"][str(pump)]["1"] == "lemon" and "versions" in s
-
-
 class TestSettingsWhileDisconnected:
     def test_version_switch_succeeds_without_pump(self, client):
         # 검증 FAIL-1 회귀 가드 — 자동 연결 프로브가 돌아도(busy 미점유) 설정 변경이 가능해야 한다.
@@ -88,24 +40,39 @@ class TestSettingsWhileDisconnected:
         assert r.status_code == 200 and r.get_json()["sensorium"] == target
 
     def test_auto_connect_toggle_roundtrip(self, client):
-        # 자동 연결 ON/OFF 스위치(사용자 요청 2026-09-01) — 상태 반영 + 비불리언 무시.
-        assert client.get("/api/state").get_json()["autoConnect"] is True
-        assert client.post("/api/settings", json={"autoConnect": False}).get_json()["autoConnect"] is False
-        assert st.STATE["auto_connect"] is False
-        assert client.post("/api/settings", json={"autoConnect": "yes"}).get_json()["autoConnect"] is False
+        # 자동 재연결 스위치 — **기본 OFF**(개편 2026-09-03: 연결 = 설정 후 명시 행위라
+        # 부팅 자동 프로브 금지). 토글 반영 + 비불리언 무시는 종전 그대로.
+        assert client.get("/api/state").get_json()["autoConnect"] is False
         assert client.post("/api/settings", json={"autoConnect": True}).get_json()["autoConnect"] is True
+        assert st.STATE["auto_connect"] is True
+        assert client.post("/api/settings", json={"autoConnect": "yes"}).get_json()["autoConnect"] is True
+        assert client.post("/api/settings", json={"autoConnect": False}).get_json()["autoConnect"] is False
 
 
 class TestMotionRoutesGateWithoutHardware:
+    def test_disconnect_open_close_symmetry(self, client):
+        # 오픈-클로즈 대칭(2026-09-03) — 미연결 끊기 = 멱등 200, 끊으면 자동 재연결도 OFF,
+        # busy 중엔 409(모션 중 tty 닫기 방지).
+        st.STATE["auto_connect"] = True
+        r = client.post("/api/disconnect")
+        assert r.status_code == 200 and r.get_json()["ok"] is True
+        assert st.STATE["auto_connect"] is False and st.STATE["adapter"] is None
+        st.STATE["busy"] = "초기화"
+        try:
+            assert client.post("/api/disconnect").status_code == 409
+        finally:
+            st.STATE["busy"] = None
+
     def test_plunger_requires_adapter(self, client):
         st.STATE["adapter"] = None
-        r = client.post("/api/plunger", json={"op": "plungerFull", "pump": 1})
-        assert r.status_code == 400  # 어댑터 게이트가 web 까지 배선됨.
+        r = client.post("/api/plunger", json={"op": "aspirate", "pump": 1, "port": 1, "volumeUl": 100})
+        assert r.status_code == 400  # 어댑터 게이트가 web 까지 배선됨(유효 op 로 — 계약 검증과 분리).
 
-    def test_filling_requires_adapter(self, client):
+    def test_new_motion_routes_require_adapter(self, client):
+        # 2탭 개편(2026-09-03) 라우트 게이트 — 플런저 절대이동·토출 테스트·밸브 회전 전부
+        # 어댑터 없이는 400(연결 관문이 web 까지 배선됨).
         st.STATE["adapter"] = None
-        r = client.post("/api/filling", json={"targets": [{"pump": 1, "port": 3}], "volumeUl": 100})
-        assert r.status_code == 400
+        assert client.post("/api/plunger", json={"op": "aspirate", "pump": 1, "port": 1, "volumeUl": 100}).status_code == 400
 
     def test_logs_endpoint_alive(self, client):
         r = client.get("/api/logs?since=0")

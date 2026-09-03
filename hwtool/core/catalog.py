@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+import re as _re
+
 from senlyt_pi.test_seam.fake_engine_sentinels import (
     FAKE_EMPTY_RAW_CODE,
     FAKE_TIMEOUT_RAW_CODE,
@@ -25,8 +27,14 @@ DISPENSE_SPEED_DEFAULT_HZ = 6000
 SLOPE_DEFAULT = 14
 DIAG_ASPIRATE_DEFAULT_HZ = 2000  # 진단 도구 흡입 기본(DiagTool useState(2000) 미러).
 SETTINGS_RANGES = {
-    "aspirateSpeedHz": (500, 5000),
-    "dispenseSpeedHz": (500, 6000),
+    # 벤치 툴 관용 범위(2026-09-03) — admin(sy01b 500~) 미러였으나 XCalibur 하한은 50 이라
+    #   UI 입력 200 이 500 으로 승격되는 불일치가 있었다. 툴 철학 = 관대한 클램프 + 기기 판정
+    #   (모델별 상한 위반은 기기가 err3 로 정직 거부).
+    #   상한 = 어댑터 프리셋 물리 상한(V 6000Hz·L 20 — PUMP_PRESETS 양 모델 동일)과 정렬.
+    #   admin 흡입 기본 상한(5000)보다 넓다 — 벤치는 전 범위 실측이 목적(어댑터 _speed_cmd 가
+    #   프리셋 상한으로 한 번 더 클램프하므로 물리 초과는 구조적으로 불가).
+    "aspirateSpeedHz": (50, 6000),
+    "dispenseSpeedHz": (50, 6000),
     "slope": (1, 20),
 }
 # 세척 기본값 — cleaningSteps(mode, purgeCount=3, alcoholCount=2) + MAX_CLEAN_PURGE_COUNT=10 미러.
@@ -75,6 +83,8 @@ ROLE_LABELS = {"output": "배출(output)", "air": "공기(air)", "cleaning": "�
 
 # 에러코드 한글 라벨 (SY-01B 매뉴얼 §4.6.2 + pump_guard 분류 주석).
 ERROR_LABELS = {
+    -1003: "모델 불일치(실물=Tecan · 센소리움을 XCalibur 변형으로)",
+    -1002: "하드웨어 선언 미확정(센소리움 배정 후 재시작)",
     0: "정상",
     1: "초기화 오류",
     2: "잘못된 명령",
@@ -82,11 +92,37 @@ ERROR_LABELS = {
     7: "미초기화(홈 상실)",
     9: "플런저 오버로드",
     10: "밸브 오버로드",
-    11: "플런저 이동 실패(과다흡입 의심)",
+    # 매뉴얼 정의(양 기종 동일): 11 = "bypass 자세에서 플런저 이동 불가". "과다흡입"은 v1.1.0
+    #   실기기에서 11 로 발현된 이력의 프로젝트 재해석 — 진단 시 두 의미 다 보이게 병기한다.
+    11: "플런저 이동 불가(매뉴얼: bypass 자세 / 실측 이력: 과다흡입)",
     15: "명령 겹침(Busy/Command overflow)",
     FAKE_TIMEOUT_RAW_CODE: "무응답(타임아웃)",
     FAKE_EMPTY_RAW_CODE: "깨진 응답(프레임 아님)",
 }
 CLASS_LABELS = {"normal": "정상", "transient": "일시적(재시도 가능)", "permanent": "구조적(점검 필요)"}
 
-MAX_PORT = 12  # 회전 밸브 12구(SY-01B·XCalibur 12-port 분배밸브 공통).
+MAX_PORT = 12  # 운영(admin) 포트 검증 상한 미러 — 실물 밸브는 다양(3-way·12구 등, 기기가 판정).
+
+
+def valve_info_from_config(cfg: "str | None") -> "dict | None":
+    """`?76` 구성 문자열 → 밸브 정보 — "활용-아니면-무시"(2026-09-03).
+
+    XCalibur 실측 `9600|100K|484|3-way|AUTO` 의 밸브 필드를 보수적으로 해석한다:
+    `N-port` → 분배밸브 N구(P1~PN — "N-port" 는 시린지 제외 셈법), `3-way`/`4-way`/`T`
+    → 방향 선택형(way 는 시린지 포함 셈법이라 선택지는 N-1). 못 알아보면 None — 소비자는
+    정적 폴백(양 매뉴얼 공통 최대 12포트 + 방향)으로 돌아가고 판정은 기기(err3)가 한다.
+    ⚠️ 이 값은 자기 신고(U<n> 설정의 되읽기)다 — 밸브 교체 후 재설정 안 된 개체는 거짓말한다.
+    SY-01B 는 ?76 존재하나 응답 포맷 미실측(매뉴얼 미문서화) — 실측 후 이 파서를 넓힌다.
+    """
+    if not cfg:
+        return None
+    for field in str(cfg).split("|"):
+        f = field.strip()
+        m = _re.match(r"^(\d+)[ -]?port", f, _re.IGNORECASE)
+        if m:
+            n = int(m.group(1))
+            if 1 <= n <= 12:
+                return {"kind": "distribution", "ports": n, "label": f}
+        if _re.match(r"^([34][ -]?way|T( valve)?)$", f, _re.IGNORECASE):
+            return {"kind": "directional", "ports": None, "label": f}
+    return None

@@ -30,7 +30,8 @@ VENV_PY = os.path.join(VENV, "Scripts" if IS_WIN else "bin", "python.exe" if IS_
 def has_deps(py):
     """해당 파이썬에 flask·pyserial·senlyt_pi 가 import 되는지."""
     return subprocess.run(
-        [py, "-c", "import flask, serial, senlyt_pi"],
+        # 감시병 = tecan 어댑터 모듈(2026-09-03 P1) — 핀 상향 후에도 구 venv 가 스킵으로 남는 함정 봉합.
+        [py, "-c", "import flask, serial, senlyt_pi.adapters.tecan_xcalibur_engine_adapter"],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
     ).returncode == 0
 

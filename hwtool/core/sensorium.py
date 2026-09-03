@@ -29,6 +29,11 @@ PUMP_MODEL_LABELS = {"sy01b": "SY-01B (Runze)", "tecan_xcalibur": "XCalibur (Tec
 def _load_ai_stamps() -> "tuple[dict, str]":
     """센소리움 도장 로드 — 어댑터 `stamp_for`(정본) 우선, 미설치 시 미러 폴백.
 
+    ⚠️ **core 순수성의 승인된 예외 1건**(2026-09-04 헥사고날 감사 판정) — 이 함수는 파일시스템
+    조회·모듈 단독 로드(I/O)를 한다. 도장 레지스트리가 import 시점에 조립되는 구조라 조립층
+    주입으로 빼려면 지연 레지스트리 리팩토링이 필요한데, 벤치 툴에서 그 비용 대비 이득이 없어
+    예외로 명문화한다(read-only·전 예외 폴백 내장 — 부작용 0). 이 파일 밖의 core 는 I/O 0 유지.
+
     반환 = ({family: stamp dict}, source) · source = "adapter"(정본) | "mirror"(폴백).
 
     ⚠️ **stamp.py 를 패키지 초기화 없이 단독 로드**한다 — 어댑터 패키지 `__init__` 은 LLM
@@ -70,8 +75,10 @@ _AI_STAMPS, AI_STAMP_SOURCE = _load_ai_stamps()
 #   ⚠️ 주소별 혼합 구성({1: sy01b, 2: tecan})은 버스 소유권 설계 확정 후 확장 예정 — 현재는
 #   버전당 단일 모델.
 _FAMILY_HW = {
-    "flavor": {"pumps": [1, 2], "capacityMl": 0.5, "pumpModel": "sy01b", "palette": "16향+당"},
-    "fragrance": {"pumps": [1, 2, 3], "capacityMl": 0.5, "pumpModel": "sy01b", "palette": "27노트"},
+    # capacityMl 0.25 = **벤치 기본**(사용자 지정 2026-09-03 — 실물 0.25mL 시린지). 운영
+    #   admin 프리셋 기본(0.5)과 다르다 — 이 툴의 기본값일 뿐, 설정에서 언제든 변경 가능.
+    "flavor": {"pumps": [1, 2], "capacityMl": 0.25, "pumpModel": "sy01b", "palette": "16향+당"},
+    "fragrance": {"pumps": [1, 2, 3], "capacityMl": 0.25, "pumpModel": "sy01b", "palette": "27노트"},
 }
 # 버전 목록 = 계열 2종 × 기기 모델 2종(기본 SY-01B + XCalibur 기기변형) = 4개.
 #   Tecan 변형은 사용자 지시(2026-09-01)로 툴에 추가한 **기기변형**이다 — AI 도장은 base 버전과
@@ -93,4 +100,5 @@ SENSORIUM_VERSIONS = {
     for fam, stamp in _AI_STAMPS.items()
     for model_id, suffix, label_sfx in _MODEL_VARIANTS
 }
-DEFAULT_SENSORIUM = _AI_STAMPS["fragrance"]["model"]
+# 기본 = **식향 SY-01B(Runze)** (사용자 지정 2026-09-03 — 종전 향장향에서 변경).
+DEFAULT_SENSORIUM = _AI_STAMPS["flavor"]["model"]
