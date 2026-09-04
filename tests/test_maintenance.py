@@ -223,7 +223,7 @@ class TestPlungerContractBoundaries:
 
     def test_port_range_1_to_12(self):
         # M7 — 포트 상한을 255 로 풀어도 아무도 안 죽었다. 상한 12 = 양 매뉴얼 공통 최대
-        #   (XCalibur Table 3-5 · SY-01B T-03~T-12 — 15포트는 어느 매뉴얼에도 없음).
+        #   (XCalibur Table 3-5 · SY-01B T-03~T-12 — 12 초과 포트는 어느 매뉴얼에도 없음).
         for bad in (0, 13, 16, -1, 255, "abc"):
             stub, payload, status = self._go({"op": "aspirate", "pump": 1, "port": bad, "volumeUl": 100})
             assert status == 400, f"port={bad!r} 가 통과"

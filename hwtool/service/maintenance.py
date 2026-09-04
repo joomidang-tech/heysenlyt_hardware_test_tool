@@ -158,7 +158,7 @@ def run_plunger(body: dict) -> "tuple[dict, int]":
         except (TypeError, ValueError):
             return ({"ok": False, "error": f"포트가 정수가 아닙니다: {port}"}, 400)
         if not 1 <= port <= 12:
-            # 상한 12 = 양 매뉴얼 공통 최대(XCalibur Table 3-5 · SY-01B T-03~T-12) — 15포트는
+            # 상한 12 = 양 매뉴얼 공통 최대(XCalibur Table 3-5 · SY-01B T-03~T-12) — 12 초과 포트는
             #   어느 매뉴얼에도 없다(2026-09-03 조사). 실물 축소는 여전히 기기가 err3 로 판정.
             return ({"ok": False, "error": f"포트는 1~12 이어야 합니다: {port}"}, 400)
     sp = spec()
