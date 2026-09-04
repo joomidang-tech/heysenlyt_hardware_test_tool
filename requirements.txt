@@ -6,4 +6,4 @@ pyserial>=3.5
 #    Tecan 도입 3커밋 전이라, 새 설치 형상엔 기종 분기·프리미티브가 통째로 없었다. 로컬은
 #    PYTHONPATH 로 워크트리를 봐서 침묵 — 지금은 tests/test_adapter_contract.py 가 형상을
 #    감시한다). 발행 시 heysenlyt-pi 최신 커밋으로 함께 올린다.
-senlyt-pi @ git+https://github.com/joomidang-tech/heysenlyt_pi.git@ec367a4cfa63eb068d22096f79794309e13ef46f
+senlyt-pi @ git+https://github.com/joomidang-tech/heysenlyt_pi.git@205541cd076d6878ab2e0c8e574a70e140468013

@@ -96,12 +96,7 @@ PAGE = """<!doctype html>
       <button id="connectBtn" onclick="doConnect()" title="위 설정(센소리움 버전=기기 모델)의 방식으로 펌프를 인식·연결합니다 — 해제 전까지 유지">🔌 연결</button>
       <button id="disconnectBtn" onclick="doDisconnect()" title="연결을 명시적으로 해제합니다">⏏ 연결 해제</button>
       <span id="connInfo" class="sub" style="font-weight:600"></span>
-      <span class="sub" id="connMethod"></span>
       <span id="busy" class="busy"></span>
-      <label class="sub" style="display:flex;flex-direction:row;align-items:center;gap:4px"
-        title="SY-01B 클론이 Tecan 파트넘버를 복제한 개체용 탈출구 — 켜도 어댑터 층 -1003 게이트는 남습니다">
-        <input type="checkbox" id="fpOverride" onchange="jfetch('/api/settings',{allowFpMismatch:this.checked}).then(r=>{if(!r.error)renderState(r);})"> 지문 불일치 무시
-      </label>
     </div>
   </div>
 
@@ -302,11 +297,6 @@ function renderState(s) {
   $('connInfo').textContent = s.connected
     ? `🟢 연결됨: ${s.port} · 펌프 ${s.pumps.join(', ')}`
     : (s.connecting ? '🔄 연결 중… (아래 로그에서 진행 확인)' : '⚪ 미연결');
-  // 연결 방식 안내 — 발견 프로브는 양 기종 모두 `?`(리포트). 종전 "tecan=Q" 표기는 어댑터
-  //   실프레임과 어긋난 거짓 표기였다(2026-09-03 5팀 검증 — 방언 표기를 UI 에서 분기하지 않는다).
-  $('connMethod').textContent = s.connected
-    ? `인식 방식: ? 리포트 프로브 (${s.pumpModelLabel||''})`
-    : `이 설정의 기기 = ${s.pumpModelLabel||'?'} → '?' 리포트 프로브로 인식`;
   // 오픈-클로즈 두 버튼(2026-09-03) — 연결 중이면 [연결] 잠금, 미연결이면 [해제] 잠금. busy 는 둘 다.
   $('connectBtn').disabled = !!s.busy || s.connected || !!s.connecting;
   $('disconnectBtn').disabled = !!s.busy || !s.connected;
@@ -380,7 +370,8 @@ function renderState(s) {
   // 판단표 — 현재 기종 열 강조(SPEED_PRESETS 선택 로직과 같은 키)
   const pt=$('presetTbl');
   if (pt) pt.className = s.pumpModel==='tecan_xcalibur' ? 'm-tec' : (s.pumpModel ? 'm-sy' : '');
-  if (document.activeElement!==$('fpOverride')) $('fpOverride').checked = s.allowFpMismatch===true;
+  // 지문 불일치 무시 체크박스는 UI 에서 제거(2026-09-04 사용자 — '뭔지 모르겠음').
+  //   서버 탈출구(allowFpMismatch)는 유지 — 클론 오탐 시 API 로만 켠다(평상시 노출 불필요).
 }
 
 // 용도별 속도 프리셋(2026-09-03) — 같은 "판단"을 기종 축(12000/3000 스텝)에 맞는 Hz 로 번역.
